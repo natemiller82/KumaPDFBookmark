@@ -8,7 +8,7 @@ from pathlib import Path
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import Fit
 
-from extractor import Heading
+from calibre_plugins.kumapdfbookmark.extractor import Heading
 
 
 def write_outline(

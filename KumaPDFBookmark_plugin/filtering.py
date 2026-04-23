@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import re
 
-from config import CHAPTER_H1_RE, CREDENTIAL_RE, FRONT_MATTER_RE
-from extractor import Heading
+from calibre_plugins.kumapdfbookmark.config import CHAPTER_H1_RE, CREDENTIAL_RE, FRONT_MATTER_RE
+from calibre_plugins.kumapdfbookmark.extractor import Heading
 
 
 def _is_front_matter(title: str) -> bool:

@@ -22,13 +22,13 @@ class BookmarkWorker:
             self.error = str(exc)
 
     def _run(self) -> None:
-        from extractor import extract_outline
-        from filtering import apply_depth_filter
-        from writer import write_outline
+        from calibre_plugins.kumapdfbookmark.extractor import extract_outline
+        from calibre_plugins.kumapdfbookmark.filtering import apply_depth_filter
+        from calibre_plugins.kumapdfbookmark.writer import write_outline
 
         use_llm = None
         if self.settings.get('enable_llm'):
-            from llm_classifier import build_classifier
+            from calibre_plugins.kumapdfbookmark.llm_classifier import build_classifier
             use_llm = build_classifier(
                 model=self.settings.get('model_name', 'mistral-nemo'),
                 base_url=self.settings.get('ollama_url', 'http://localhost:11434'),
