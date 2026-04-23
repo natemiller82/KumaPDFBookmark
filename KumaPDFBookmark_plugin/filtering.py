@@ -1,13 +1,13 @@
 """
-Depth filtering and deduplication logic extracted from auto-pdf-bookmarks/main.py.
-No algorithmic changes — only the config import is adjusted for the apb sub-package.
+Depth filtering and deduplication — logic extracted from auto-pdf-bookmarks/main.py.
+Flat import version: config.py and extractor.py live at the same ZIP root level.
 """
 from __future__ import annotations
 
 import re
 
-from apb.config import CHAPTER_H1_RE, CREDENTIAL_RE, FRONT_MATTER_RE
-from apb.extractor import Heading
+from config import CHAPTER_H1_RE, CREDENTIAL_RE, FRONT_MATTER_RE
+from extractor import Heading
 
 
 def _is_front_matter(title: str) -> bool:
@@ -22,8 +22,6 @@ def _is_credential_name(title: str) -> bool:
     return bool(CREDENTIAL_RE.search(title))
 
 
-# Strips leading chapter number + optional single-letter mnemonic code
-# so deduplicated variants compare equal ("3 x: Title" == "3 Title").
 _CHAPTER_NUM_PREFIX = re.compile(r"^\d+\s+(?:[a-zA-Z]:\s*)?")
 
 
@@ -33,16 +31,8 @@ def _dedup_key(title: str) -> str:
 
 def apply_depth_filter(headings: list[Heading], depth: int) -> list[Heading]:
     """
-    Filter *headings* to the requested *depth* (1-3).
-
-    Rules (identical to main.py):
-    - Front-matter headings are always kept and promoted to H1.
-    - H1 headings without a recognisable chapter/section number are dropped
-      (suppresses cover-page OCR noise).
-    - H2/H3 headings that start with a lowercase letter are dropped (OCR artefacts).
-    - H2/H3 credential lines (e.g. "JOHN SMITH, MD") are suppressed at depth < 3.
-    - Adjacent same-level headings with the same normalised title within 2 pages
-      are deduplicated.
+    Filter headings to the requested depth (1-3).
+    See auto-pdf-bookmarks/main.py for full rule documentation.
     """
     result: list[Heading] = []
     for h in headings:

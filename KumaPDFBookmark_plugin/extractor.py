@@ -17,7 +17,7 @@ from typing import Callable
 
 import fitz  # PyMuPDF
 
-from apb.config import (
+from config import (
     BODY_FLUSH_MIN_LEN,
     BODY_FLUSH_MIN_SIZE_RATIO,
     HEADING_MAX_CHARS,

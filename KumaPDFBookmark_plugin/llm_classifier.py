@@ -15,7 +15,7 @@ import urllib.request
 import urllib.error
 from typing import Callable
 
-from apb.config import LLM_SYSTEM_PROMPT, OLLAMA_BASE_URL, OLLAMA_DEFAULT_MODEL, OLLAMA_TIMEOUT
+from config import LLM_SYSTEM_PROMPT, OLLAMA_BASE_URL, OLLAMA_DEFAULT_MODEL, OLLAMA_TIMEOUT
 
 
 class OllamaClassifier:

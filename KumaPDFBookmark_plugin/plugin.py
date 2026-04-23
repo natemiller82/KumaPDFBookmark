@@ -22,7 +22,6 @@ class KumaPDFBookmarkAction(InterfaceAction):
         "Detect and embed PDF bookmarks using auto-pdf-bookmarks",
         None,
     )
-    # ToolButton (no dropdown); set popup_type=1 for a plain toolbar button.
     popup_type = 1
     action_type = 'current'
 
@@ -36,10 +35,6 @@ class KumaPDFBookmarkAction(InterfaceAction):
             self.gui.library_view.context_menu.addAction(self.qaction)
         except Exception:
             pass
-
-    # ------------------------------------------------------------------
-    # Public slot — invoked by toolbar button or context menu entry.
-    # ------------------------------------------------------------------
 
     def add_pdf_bookmarks(self):
         rows = self.gui.current_view().selectionModel().selectedRows()
@@ -65,12 +60,8 @@ class KumaPDFBookmarkAction(InterfaceAction):
 
         self._process(pdf_ids, db)
 
-    # ------------------------------------------------------------------
-    # Processing loop — runs worker synchronously, one book at a time.
-    # ------------------------------------------------------------------
-
     def _process(self, book_ids, db):
-        from calibre_plugins.kumapdfbookmark.config import prefs
+        from calibre_plugins.kumapdfbookmark.prefs import prefs
         from calibre_plugins.kumapdfbookmark.worker import BookmarkWorker
 
         settings = {

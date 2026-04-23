@@ -8,7 +8,7 @@ from pathlib import Path
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import Fit
 
-from apb.extractor import Heading
+from extractor import Heading
 
 
 def write_outline(

@@ -1,7 +1,7 @@
 """
 BookmarkWorker — runs extract_outline() → apply_depth_filter() → write_outline()
-against a single PDF.  Designed to be called synchronously from plugin.py's main
-thread, or easily adapted to run inside a QThread by calling run_sync() from run().
+against a single PDF.  All sibling modules are imported by flat name since they
+live at the root of the plugin ZIP alongside this file.
 """
 from __future__ import annotations
 
@@ -22,13 +22,13 @@ class BookmarkWorker:
             self.error = str(exc)
 
     def _run(self) -> None:
-        from apb.extractor import extract_outline
-        from apb.filtering import apply_depth_filter
-        from apb.writer import write_outline
+        from extractor import extract_outline
+        from filtering import apply_depth_filter
+        from writer import write_outline
 
         use_llm = None
         if self.settings.get('enable_llm'):
-            from apb.llm_classifier import build_classifier
+            from llm_classifier import build_classifier
             use_llm = build_classifier(
                 model=self.settings.get('model_name', 'mistral-nemo'),
                 base_url=self.settings.get('ollama_url', 'http://localhost:11434'),
