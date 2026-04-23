@@ -26,6 +26,11 @@ class KumaPDFBookmarkAction(InterfaceAction):
     action_type = 'current'
 
     def genesis(self):
+        try:
+            from calibre.gui2 import get_icons
+            self.qaction.setIcon(get_icons('images/icon.png'))
+        except Exception:
+            pass
         self.qaction.triggered.connect(self.add_pdf_bookmarks)
 
     def initialization_complete(self):

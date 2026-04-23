@@ -11,6 +11,9 @@ class KumaPDFBookmarkPlugin(InterfaceActionBase):
     minimum_calibre_version = (5, 0, 0)
     actual_plugin           = 'calibre_plugins.kumapdfbookmark.plugin:KumaPDFBookmarkAction'
 
+    # Tells Calibre to pre-load these resources from the ZIP so get_icons() finds them.
+    resources = ('images/icon.png',)
+
     def is_customizable(self):
         return True
 
