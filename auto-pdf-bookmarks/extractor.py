@@ -168,9 +168,17 @@ def _cluster_by_font_size(
     if median_size == 0:
         return []
 
-    total_spans = len(spans)
+    # Frequency is measured among heading-candidate spans only (ratio >= H3).
+    # Counting against all spans would suppress single-digit chapter numbers
+    # like "1" or "2" that appear thousands of times in body text at a
+    # completely different font size.
+    candidates_for_freq = [
+        s for s in spans
+        if s.size / median_size >= HEADING_SIZE_RATIO_H3
+    ]
+    total_for_freq = max(len(candidates_for_freq), 1)
     text_freq: dict[str, int] = {}
-    for s in spans:
+    for s in candidates_for_freq:
         text_freq[s.text] = text_freq.get(s.text, 0) + 1
 
     # --- Classify every span ---
@@ -180,11 +188,18 @@ def _cluster_by_font_size(
 
     for span in spans:
         ratio = span.size / median_size
-        freq_ratio = text_freq[span.text] / total_spans
+        freq_ratio = text_freq.get(span.text, 0) / total_for_freq
 
-        # Frequency/length filters → body
-        if (freq_ratio > HEADING_MAX_FREQUENCY_RATIO
-                or not (HEADING_MIN_CHARS <= len(span.text) <= HEADING_MAX_CHARS)):
+        # Frequency filter → body
+        if freq_ratio > HEADING_MAX_FREQUENCY_RATIO:
+            classified.append((span, None))
+            continue
+
+        # Length filter — waived for H1-sized spans so single-digit chapter
+        # numbers ("1", "2") are not silently dropped before classification.
+        too_long = len(span.text) > HEADING_MAX_CHARS
+        too_short = len(span.text) < HEADING_MIN_CHARS
+        if too_long or (too_short and ratio < HEADING_SIZE_RATIO_H1):
             classified.append((span, None))
             continue
 

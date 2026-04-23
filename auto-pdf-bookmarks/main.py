@@ -8,10 +8,12 @@ Usage examples:
     python main.py input.pdf output.pdf --llm --model mistral-nemo --verbose
 """
 import argparse
+import re
 import sys
 
 from config import (
     CHAPTER_H1_RE,
+    CREDENTIAL_RE,
     FRONT_MATTER_RE,
     OLLAMA_BASE_URL,
     OLLAMA_DEFAULT_MODEL,
@@ -70,6 +72,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"Ollama base URL (default: {OLLAMA_BASE_URL}).",
     )
     parser.add_argument(
+        "--pages",
+        default=None,
+        metavar="START-END",
+        help="For --dry-run: only display headings within this 1-indexed page range (e.g. --pages 20-100).",
+    )
+    parser.add_argument(
         "--verbose", "-v",
         action="store_true",
         default=False,
@@ -88,6 +96,21 @@ def _is_front_matter(title: str) -> bool:
 
 def _has_chapter_number(title: str) -> bool:
     return bool(CHAPTER_H1_RE.search(title))
+
+
+def _is_credential_name(title: str) -> bool:
+    """Return True for lines like 'JOHN SMITH, MD, FACS' — author attributions."""
+    return bool(CREDENTIAL_RE.search(title))
+
+
+# Strips leading chapter number and optional single-letter mnemonic code
+# ("3 x: Title" → "title") so that two variants of the same chapter heading
+# compare equal during deduplication even when one carries the mnemonic label.
+_CHAPTER_NUM_PREFIX = re.compile(r"^\d+\s+(?:[a-zA-Z]:\s*)?")
+
+
+def _dedup_key(title: str) -> str:
+    return _CHAPTER_NUM_PREFIX.sub("", title).strip().lower()
 
 
 def apply_depth_filter(headings: list[Heading], depth: int) -> list[Heading]:
@@ -118,10 +141,31 @@ def apply_depth_filter(headings: list[Heading], depth: int) -> list[Heading]:
         if level > 1 and h.title and h.title[0].islower():
             continue
 
+        # Author / credential attribution lines (e.g. "JOHN SMITH, MD, FACS")
+        # are suppressed at depth < 3; they appear under Foreword/Preface sections.
+        if level > 1 and depth < 3 and _is_credential_name(h.title):
+            continue
+
         if level <= depth:
             result.append(h)
 
-    return result
+    # Deduplicate headings at the same level with identical titles on adjacent
+    # pages.  Medical textbooks often repeat the chapter title on the facing
+    # page; keeping both produces doubled bookmarks in the PDF panel.
+    # Track the most-recent heading seen at each level (H2 entries between two
+    # H1 entries must not prevent the H1 comparison).
+    deduped: list[Heading] = []
+    last_at_level: dict[int, Heading] = {}
+    for h in result:
+        prev = last_at_level.get(h.level)
+        if (prev is not None
+                and _dedup_key(prev.title) == _dedup_key(h.title)
+                and h.page - prev.page <= 2):
+            continue
+        deduped.append(h)
+        last_at_level[h.level] = h
+
+    return deduped
 
 
 # ---------------------------------------------------------------------------
@@ -158,11 +202,23 @@ def run(args: argparse.Namespace) -> int:
               f"(raw: {len(raw_headings)}).")
 
     if args.dry_run:
-        print(f"\n--- Headings (depth={args.depth}) ---")
+        page_start = page_end = None
+        if args.pages:
+            parts = args.pages.split("-")
+            page_start = int(parts[0])
+            page_end = int(parts[1]) if len(parts) > 1 else page_start
+
+        label = f"depth={args.depth}"
+        if page_start is not None:
+            label += f", pages {page_start}-{page_end}"
+        print(f"\n--- Headings ({label}) ---")
         for h in headings:
+            pg = h.page + 1
+            if page_start is not None and not (page_start <= pg <= page_end):
+                continue
             indent = "  " * (h.level - 1)
             title = h.title[:90].encode("ascii", "replace").decode()
-            print(f"{indent}H{h.level} p{h.page + 1}: {title}")
+            print(f"{indent}H{h.level} p{pg}: {title}")
         return 0
 
     if args.verbose:

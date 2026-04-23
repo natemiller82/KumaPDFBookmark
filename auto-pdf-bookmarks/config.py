@@ -13,8 +13,11 @@ HEADING_SIZE_RATIO_H3 = 1.05
 HEADING_MIN_CHARS = 3
 HEADING_MAX_CHARS = 200
 
-# Spans whose text appears on more than this fraction of total spans are
-# treated as running headers/footers, not headings.
+# Spans whose text appears on more than this fraction of *heading-candidate*
+# spans are treated as running headers/footers, not headings.
+# Frequency is measured among candidates only (ratio >= H3 threshold) so that
+# single-digit chapter numbers like "1" are not suppressed by their thousands
+# of body-text occurrences at a different font size.
 HEADING_MAX_FREQUENCY_RATIO = 0.15
 
 # --- Heading buffer / merge thresholds ---
@@ -68,8 +71,19 @@ FRONT_MATTER_RE = re.compile(
 # Used as a soft filter to suppress random large-font OCR artefacts.
 CHAPTER_H1_RE = re.compile(
     r"(Chapter|Section|Part)\s+[\w]"   # Chapter/Section/Part N
-    r"|\b\d+[\s.\-]"                   # starts with or contains digit
-    r"|^[IVXLCDM]{1,6}[\s.\-]",       # roman numeral at start
+    r"|^\d+[\s.\-]"                    # digit at line start (numbered chapters)
+    r"|^[IVXLCDM]{2,6}[\s.\-]",       # roman numeral at start; 2+ chars so single
+                                       # OCR diagram letters ("x","C","D") don't match
+    re.IGNORECASE,
+)
+
+# Professional credential suffixes used to detect author-name lines.
+# H2/H3 spans that match this pattern are dropped at depth < 3
+# (they appear under Foreword/Preface sections, not as real content headings).
+CREDENTIAL_RE = re.compile(
+    r",\s*(MD|DO|PhD|PHD|MBBS|MBChB|MBBCh|FACS|FRCSC|FRCS|FRCA|"
+    r"FCEM|FRCEM|FACEM|FACEP|FACP|FACC|FAHA|FACOG|FAAOS|FAANS|FCCM|FCCP|"
+    r"RN|NP|PA|MBA|MPH|MSc|MHA|DrPH|DNP|FICS|FPMRS|FEBU|FEBVS)\b",
     re.IGNORECASE,
 )
 

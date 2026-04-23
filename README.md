@@ -67,6 +67,7 @@ python main.py [options] INPUT [OUTPUT]
 | `OUTPUT` | Path for the output PDF with bookmarks (required unless `--dry-run`) |
 | `--depth {1,2,3}` | Maximum bookmark depth: 1=chapters only, 2=chapters+sections (default), 3=all |
 | `--dry-run` | Print detected headings to stdout without writing a PDF |
+| `--pages START-END` | With `--dry-run`: show only headings within this 1-indexed page range (e.g. `--pages 20-100`) |
 | `--llm` | Enable Ollama to resolve ambiguous heading candidates |
 | `--model NAME` | Ollama model to use (default: `mistral-nemo`) |
 | `--ollama-url URL` | Ollama base URL (default: `http://localhost:11434`) |
@@ -92,8 +93,8 @@ All text spans are extracted via PyMuPDF's `page.get_text("dict")`. Each span's 
 
 **Pre-classification filters:**
 
-- **Frequency filter** — a span whose text appears on more than 15% of total spans is treated as a running header/footer and skipped.
-- **Length filter** — spans shorter than 3 or longer than 200 characters are ignored.
+- **Frequency filter** — a span whose text appears on more than 15% of *heading-candidate* spans is treated as a running header/footer and skipped. Frequency is scoped to candidates (ratio ≥ H3 threshold) so that single-digit chapter numbers like `"1"` are not suppressed by their thousands of occurrences in body text at a different font size.
+- **Length filter** — spans longer than 200 characters are ignored. Spans shorter than 3 characters are also ignored *unless* their font-size ratio meets the H1 threshold — this exception allows single-digit chapter numbers (`"1"`, `"2"`) to be classified as H1 rather than silently dropped.
 
 **Multi-line title merging:**
 
@@ -113,9 +114,13 @@ Body text flushes the accumulator only when it is substantial (size ≥ 70% of m
 
 Front matter headings (Preface, Foreword, Dedication, Acknowledgments, Contributors, etc.) are always promoted to H1 and kept regardless of `--depth`.
 
-H1 headings must carry a recognisable chapter/section number or be front matter — bare title fragments from cover pages are suppressed.
+H1 headings must carry a recognisable chapter/section number or be front matter — bare title fragments from cover pages are suppressed. Chapter numbers are matched at line start only (`^\d+`) so that mid-string digits in formulae or table entries (`SBP ≥ 90`) are not mistaken for numbered chapters. Roman numerals require at least two characters (`II`, `IV`, …) so that single-letter OCR diagram labels (`x`, `C`, `D`) are excluded.
 
 H2/H3 headings that start with a lowercase letter are dropped as OCR artefacts (a truncated first character from a ligature or glyph split).
+
+H2/H3 lines matching professional credential suffixes (`, MD`, `, FACS`, `, PhD`, …) are dropped at `--depth` < 3 — these are author attribution lines under Foreword/Preface sections, not real content headings.
+
+Identical headings at the same level within 2 pages of each other are deduplicated — many medical textbooks repeat the chapter title on the facing or continuation page.
 
 ### Stage 3 — Pattern-match fallback
 
