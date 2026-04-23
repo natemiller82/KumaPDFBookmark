@@ -24,3 +24,7 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Local AI tooling
+.claude/
+claudproject.txt
