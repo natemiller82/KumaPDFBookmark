@@ -21,6 +21,7 @@ except ImportError:
 
 prefs = JSONConfig('plugins/kumapdfbookmark')
 prefs.defaults['depth']      = 2
+prefs.defaults['overwrite']  = 'always'   # 'always' | 'never' | 'prompt'
 prefs.defaults['enable_llm'] = False
 prefs.defaults['ollama_url'] = 'http://localhost:11434'
 prefs.defaults['model_name'] = 'mistral-nemo'
@@ -50,6 +51,16 @@ class ConfigWidget(QWidget):
             self.depth_combo.setCurrentIndex(idx)
         form.addRow('Bookmark depth:', self.depth_combo)
 
+        # --- Overwrite selector ---
+        self.overwrite_combo = QComboBox()
+        self.overwrite_combo.addItem('Always replace existing bookmarks', 'always')
+        self.overwrite_combo.addItem('Never replace (skip if bookmarks exist)', 'never')
+        self.overwrite_combo.addItem('Ask me each time', 'prompt')
+        oidx = self.overwrite_combo.findData(prefs['overwrite'])
+        if oidx >= 0:
+            self.overwrite_combo.setCurrentIndex(oidx)
+        form.addRow('Overwrite bookmarks:', self.overwrite_combo)
+
         # --- LLM toggle ---
         self.llm_check = QCheckBox('Enable Ollama LLM for ambiguous headings')
         self.llm_check.setChecked(prefs['enable_llm'])
@@ -75,6 +86,7 @@ class ConfigWidget(QWidget):
 
     def commit(self):
         prefs['depth']      = self.depth_combo.currentData()
+        prefs['overwrite']  = self.overwrite_combo.currentData()
         prefs['enable_llm'] = self.llm_check.isChecked()
         prefs['ollama_url'] = self.url_edit.text().strip() or 'http://localhost:11434'
         prefs['model_name'] = self.model_edit.text().strip() or 'mistral-nemo'

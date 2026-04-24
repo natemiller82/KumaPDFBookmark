@@ -64,12 +64,15 @@ def extract_outline(
     try:
         # Step 1: embedded TOC
         toc = doc.get_toc(simple=False)
-        if toc:
+        if toc and _toc_is_valid(toc, len(doc)):
             if verbose:
                 print(f"[extractor] Found embedded TOC with {len(toc)} entries.")
             return _toc_to_headings(toc)
 
-        if verbose:
+        if toc and verbose:
+            print(f"[extractor] Embedded TOC rejected ({len(toc)} entries) — "
+                  "too many entries point to front matter or a single page.")
+        elif verbose:
             print("[extractor] No embedded TOC — running font-size analysis.")
 
         # Step 2: font-size clustering with merge pass
@@ -96,6 +99,33 @@ def extract_outline(
 # ---------------------------------------------------------------------------
 # Step 1
 # ---------------------------------------------------------------------------
+
+def _toc_is_valid(toc: list, total_pages: int) -> bool:
+    """Return False when the embedded TOC looks like a scanned TOC-page index.
+
+    Two heuristics — either one failing means the TOC is rejected and we fall
+    through to font-size clustering:
+      • >30 % of entries share the same destination page (scan artifact).
+      • >30 % of entries land on pages 1-20 (front-matter pages, not chapters).
+    """
+    n = len(toc)
+    if n == 0:
+        return False
+
+    page_counts: dict[int, int] = {}
+    front_count = 0
+    for entry in toc:
+        p = entry[2]  # 1-indexed page number from doc.get_toc()
+        page_counts[p] = page_counts.get(p, 0) + 1
+        if p <= 20:
+            front_count += 1
+
+    if max(page_counts.values()) / n > 0.30:
+        return False
+    if front_count / n > 0.30:
+        return False
+    return True
+
 
 def _toc_to_headings(toc: list) -> list[Heading]:
     headings = []

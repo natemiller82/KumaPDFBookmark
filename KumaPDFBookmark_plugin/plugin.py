@@ -9,9 +9,9 @@ from calibre.gui2.actions import InterfaceAction
 from calibre.gui2 import error_dialog, info_dialog
 
 try:
-    from qt.core import QProgressDialog, QApplication
+    from qt.core import QProgressDialog, QApplication, QIcon
 except ImportError:
-    from PyQt5.Qt import QProgressDialog, QApplication
+    from PyQt5.Qt import QProgressDialog, QApplication, QIcon
 
 
 class KumaPDFBookmarkAction(InterfaceAction):
@@ -27,8 +27,8 @@ class KumaPDFBookmarkAction(InterfaceAction):
 
     def genesis(self):
         try:
-            from calibre.gui2 import get_icons
-            self.qaction.setIcon(get_icons('images/icon.png'))
+            icon_path = os.path.join(os.path.dirname(__file__), 'images', 'icon.png')
+            self.qaction.setIcon(QIcon(icon_path))
         except Exception:
             pass
         self.qaction.triggered.connect(self.add_pdf_bookmarks)
@@ -66,15 +66,24 @@ class KumaPDFBookmarkAction(InterfaceAction):
         self._process(pdf_ids, db)
 
     def _process(self, book_ids, db):
+        from calibre.gui2 import question_dialog
         from calibre_plugins.kumapdfbookmark.prefs import prefs
-        from calibre_plugins.kumapdfbookmark.worker import BookmarkWorker
+        from calibre_plugins.kumapdfbookmark.worker import BookmarkWorker, _ensure_fitz
 
+        overwrite = prefs['overwrite']
         settings = {
             'depth':      prefs['depth'],
             'enable_llm': prefs['enable_llm'],
             'ollama_url': prefs['ollama_url'],
             'model_name': prefs['model_name'],
         }
+
+        # Ensure fitz is importable now so the per-book TOC check is instant.
+        if overwrite != 'always':
+            try:
+                _ensure_fitz()
+            except Exception:
+                overwrite = 'always'  # can't check; proceed without restriction
 
         progress = QProgressDialog(
             'Adding bookmarks…', 'Cancel', 0, len(book_ids), self.gui,
@@ -99,6 +108,27 @@ class KumaPDFBookmarkAction(InterfaceAction):
             if not pdf_path or not os.path.exists(pdf_path):
                 errors.append(f'{title}: PDF not found on disk')
                 continue
+
+            # Overwrite check — skip or prompt when existing bookmarks are found.
+            if overwrite != 'always':
+                try:
+                    import fitz
+                    doc_check = fitz.open(pdf_path)
+                    has_toc = bool(doc_check.get_toc())
+                    doc_check.close()
+                except Exception:
+                    has_toc = False
+
+                if has_toc:
+                    if overwrite == 'never':
+                        errors.append(f'{title}: already has bookmarks — skipped')
+                        continue
+                    elif not question_dialog(
+                        self.gui,
+                        'Existing bookmarks',
+                        f'<b>{title}</b> already has bookmarks. Replace them?',
+                    ):
+                        continue
 
             fd, tmp = tempfile.mkstemp(suffix='.pdf')
             os.close(fd)

@@ -4,7 +4,7 @@ from calibre.customize import InterfaceActionBase
 
 class KumaPDFBookmarkPlugin(InterfaceActionBase):
     name                    = 'KumaPDFBookmark'
-    description             = "Add PDF bookmarks to OCR'd medical textbooks"
+    description             = "Automatically detect and embed a navigable bookmark tree in PDF files"
     supported_platforms     = ['windows', 'osx', 'linux']
     author                  = 'KumaPDFBookmark'
     version                 = (1, 0, 0)
