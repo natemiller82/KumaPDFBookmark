@@ -67,6 +67,37 @@ FRONT_MATTER_RE = re.compile(
     re.IGNORECASE,
 )
 
+# --- Post-extraction filters ---
+# Run on every heading list before it leaves extract_outline, regardless of
+# whether the source was an embedded TOC, font-size analysis, or the regex
+# fallback. Multi-author medical atlases (Cheney, Dutton-style) frequently
+# ship with embedded outlines that are already polluted with figure
+# captions, page folios, and per-author contributor entries — these filters
+# clean those up uniformly.
+
+# Figure / table / plate / box captions. Optional leading "<digits>\s+"
+# handles the common case where a page-folio span got concatenated with
+# the caption text ("346 Fig. 17-12").
+CAPTION_RE = re.compile(
+    r"^(?:\d+\s+)?(Fig\.?|Figure|Table|Plate|Box)\s+\d",
+    re.IGNORECASE,
+)
+
+# A "real" body heading that marks the end of the front-matter region.
+# We accept Chapter N / Section <roman|num> / Part <roman|num>, or a
+# numbered chapter title like "1 Surgical Anatomy".  When this is found,
+# everything on an earlier page that is not a recognised front-matter
+# anchor (Preface / Foreword / Contributors / etc.) is dropped.
+FIRST_BODY_HEADING_RE = re.compile(
+    r"^("
+    r"Chapter\s+\d+"
+    r"|Section\s+[IVXLCDM\d]+"
+    r"|Part\s+[IVXLCDM\d]+"
+    r"|\d+\s+[A-Z][A-Za-z]"
+    r")",
+    re.IGNORECASE,
+)
+
 # H1 headings should carry a chapter/section number or be front matter.
 # Used as a soft filter to suppress random large-font OCR artefacts.
 CHAPTER_H1_RE = re.compile(
