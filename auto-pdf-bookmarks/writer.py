@@ -1,12 +1,16 @@
 """
-Write a detected outline back to a PDF using pypdf.
+Write a detected outline back to a PDF using PyMuPDF (fitz).
+
+fitz is preferred over pypdf here because pypdf's catalog/root validation
+rejects some legitimately-structured PDFs (e.g. Janfaza, which raises
+LimitReachedError on the recovery path).  fitz reads and writes those
+files without complaint, and we already depend on it for extraction.
 """
 from __future__ import annotations
 
 from pathlib import Path
 
-from pypdf import PdfReader, PdfWriter
-from pypdf.generic import Fit
+import fitz  # PyMuPDF
 
 from extractor import Heading
 
@@ -26,78 +30,65 @@ def write_outline(
         headings:    Ordered list of Heading objects from extractor.
         verbose:     Emit progress messages.
     """
-    reader = PdfReader(source_path)
-    writer = PdfWriter()
-
-    # Clone all pages.
-    for page in reader.pages:
-        writer.add_page(page)
-
-    # Clone existing metadata.
-    if reader.metadata:
-        writer.add_metadata(dict(reader.metadata))
-
-    if not headings:
-        if verbose:
+    doc = fitz.open(source_path)
+    try:
+        if headings:
+            num_pages = doc.page_count
+            toc = _build_toc(headings, num_pages, verbose)
+            # collapse=False preserves the existing page-tree pointers; fitz
+            # handles level-based hierarchy itself, so we don't need to track
+            # parent references the way pypdf does.
+            doc.set_toc(toc)
+        elif verbose:
             print("[writer] No headings to write — saving unchanged PDF.")
-        _save(writer, dest_path)
-        return
 
-    num_pages = len(reader.pages)
-    _add_bookmarks(writer, headings, num_pages, verbose)
-
-    _save(writer, dest_path)
-    if verbose:
-        print(f"[writer] Saved {len(headings)} bookmarks -> {dest_path}")
+        Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
+        # garbage=1 sweeps unreferenced objects (including the old outline
+        # tree that set_toc just replaced) without the expensive stream
+        # recompression that garbage>=3 / deflate=True would trigger.
+        doc.save(dest_path, garbage=1)
+        if verbose:
+            print(f"[writer] Saved {len(headings)} bookmarks -> {dest_path}")
+    finally:
+        doc.close()
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _add_bookmarks(
-    writer: PdfWriter,
+def _build_toc(
     headings: list[Heading],
     num_pages: int,
     verbose: bool,
-) -> None:
+) -> list[list]:
     """
-    Insert bookmarks into *writer*, preserving hierarchy up to 3 levels.
+    Convert Heading objects into the fitz set_toc format:
+    [[level, title, page_1indexed], ...].
 
-    pypdf's add_outline_item API expects a parent reference for nesting.
-    We track the last seen bookmark at each level.
+    fitz requires the first entry to be at level 1 and every subsequent
+    entry's level to differ from its predecessor by at most +1 (no jumping
+    from level 1 straight to level 3).  We fix up the latter by clamping
+    each entry's level to prev_level + 1.
     """
-    parent: dict[int, object] = {}  # level → bookmark reference
-
+    toc: list[list] = []
+    prev_level = 0
     for h in headings:
-        page_idx = min(h.page, num_pages - 1)
+        # Clamp page to valid range (PyMuPDF expects 1-indexed for set_toc)
+        page_1idx = max(1, min(h.page + 1, num_pages))
+
+        # Enforce monotonic level rules required by set_toc.
         level = h.level
+        if not toc:
+            level = 1  # first entry must be level 1
+        elif level > prev_level + 1:
+            level = prev_level + 1
 
-        # Determine parent reference
-        par_ref = None
-        for lvl in range(level - 1, 0, -1):
-            if lvl in parent:
-                par_ref = parent[lvl]
-                break
-
-        ref = writer.add_outline_item(
-            title=h.title,
-            page_number=page_idx,
-            parent=par_ref,
-            fit=Fit.fit(),
-        )
-        parent[level] = ref
-        # Invalidate deeper levels when we move back to a shallower heading
-        for deeper in list(parent.keys()):
-            if deeper > level:
-                del parent[deeper]
+        toc.append([level, h.title, page_1idx])
+        prev_level = level
 
         if verbose:
             indent = "  " * (level - 1)
-            print(f"[writer]   {indent}H{level} p{page_idx + 1}: {h.title[:60]}")
+            print(f"[writer]   {indent}H{level} p{page_1idx}: {h.title[:60]}")
 
-
-def _save(writer: PdfWriter, dest_path: str) -> None:
-    Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
-    with open(dest_path, "wb") as f:
-        writer.write(f)
+    return toc
