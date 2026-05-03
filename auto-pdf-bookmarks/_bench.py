@@ -1,12 +1,15 @@
 """
 Test harness for the bookmark over-detection fix.
 
-Runs main.py + validator.py against the 7 fixture PDFs and prints a
+Runs main.py + validator.py against the fixture PDFs and prints a
 single-line summary per fixture: bookmarks, missing-in-toc (warnings),
 missing-in-bookmarks (errors), TOC entries parsed, and elapsed seconds.
 
 Usage:
-    python _bench.py LABEL [--only fixture_substring] [--skip-regen]
+    python _bench.py LABEL [--only fixture_substring] [--skip-regen] [--quick]
+
+    --quick  Run only the 3 representative fixtures (Davis, Dutton, Cheney)
+             — fast iteration during development.
 
 Outputs:
     <fixture>.<LABEL>.bookmarked.pdf
@@ -33,7 +36,17 @@ FIXTURES = [
     ("Janfaza_HeadAnatomy",  r"Surgical Anatomy of the Head an - Parviz Janfaza.pdf"),
     ("Dutton_Atlas",         r"Atlas of Clinical and Surgical - Jonathan J. Dutton.pdf"),
     ("Cheney_FacialSurgery", r"Facial Surgery_ Plastic and Reconstructive - Mack L. Cheney, M. D_.pdf"),
+    ("Grabb_Flaps",          r"Grabb's Encyclopedia of Flaps_ - Berish Strauch.pdf"),
+    ("Gubisch_Rhinoplasty",  r"Mastering Advanced Rhinoplasty - Wolfgang Gubisch.pdf"),
+    ("Kaufman_FacialRecon",  r"Practical Facial Reconstruction - Dr. Andrew Kaufman M. D_.pdf"),
+    ("Dedivitis_Laryngeal",  r"Laryngeal Cancer_ Clinical Case - Rogerio A. Dedivitis.pdf"),
 ]
+
+# --quick subset — three representative shapes:
+#   Davis    = no embedded outline (font-cluster path)
+#   Dutton   = clean hierarchical outline
+#   Cheney   = polluted outline (post-filter pressure test)
+QUICK_FIXTURES = {"Davis_Otoplasty", "Dutton_Atlas", "Cheney_FacialSurgery"}
 
 
 def run(cmd: list[str], cwd: str | None = None) -> tuple[int, str, str]:
@@ -43,22 +56,33 @@ def run(cmd: list[str], cwd: str | None = None) -> tuple[int, str, str]:
 
 def main() -> int:
     if len(sys.argv) < 2:
-        print("Usage: python _bench.py LABEL [--only substring] [--skip-regen]")
+        print("Usage: python _bench.py LABEL [--only substring] [--skip-regen] [--quick]")
         return 2
     label = sys.argv[1]
     only = None
     skip_regen = False
-    for a in sys.argv[2:]:
+    quick = False
+    args_iter = iter(sys.argv[2:])
+    for a in args_iter:
         if a == "--skip-regen":
             skip_regen = True
+        elif a == "--quick":
+            quick = True
         elif a == "--only":
-            pass
-        elif sys.argv[sys.argv.index(a) - 1] == "--only":
-            only = a
+            only = next(args_iter, None)
+        else:
+            print(f"Unknown argument: {a}", file=sys.stderr)
+            return 2
+
+    if quick and only:
+        print("--quick and --only are mutually exclusive.", file=sys.stderr)
+        return 2
 
     results = []
-    print(f"=== bench label={label} ===")
+    print(f"=== bench label={label}{' (quick)' if quick else ''} ===")
     for name, fname in FIXTURES:
+        if quick and name not in QUICK_FIXTURES:
+            continue
         if only and only.lower() not in name.lower():
             continue
         src = os.path.join(FIXTURE_DIR, fname)
