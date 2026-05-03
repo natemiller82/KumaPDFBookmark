@@ -9,9 +9,9 @@ from calibre.gui2.actions import InterfaceAction
 from calibre.gui2 import error_dialog, info_dialog
 
 try:
-    from qt.core import QProgressDialog, QApplication, QIcon
+    from qt.core import QProgressDialog, QApplication
 except ImportError:
-    from PyQt5.Qt import QProgressDialog, QApplication, QIcon
+    from PyQt5.Qt import QProgressDialog, QApplication
 
 
 class KumaPDFBookmarkAction(InterfaceAction):
@@ -26,11 +26,13 @@ class KumaPDFBookmarkAction(InterfaceAction):
     action_type = 'current'
 
     def genesis(self):
-        try:
-            icon_path = os.path.join(os.path.dirname(__file__), 'images', 'icon.png')
-            self.qaction.setIcon(QIcon(icon_path))
-        except Exception:
-            pass
+        # get_icons() is injected into plugin module scope by calibre's
+        # plugin loader — it loads from the plugin ZIP via the resources
+        # tuple in __init__.py.  Two-arg form (with plugin name) is
+        # required by calibre 6+ for icon-theme support and is back-
+        # compatible with calibre 5.
+        icon = get_icons('images/icon.png', 'KumaPDFBookmark')
+        self.qaction.setIcon(icon)
         self.qaction.triggered.connect(self.add_pdf_bookmarks)
 
     def initialization_complete(self):

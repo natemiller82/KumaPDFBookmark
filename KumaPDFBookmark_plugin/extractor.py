@@ -11,6 +11,7 @@ Strategy (in order):
 """
 from __future__ import annotations
 
+import re
 import statistics
 from dataclasses import dataclass
 from typing import Callable
@@ -20,6 +21,9 @@ import fitz  # PyMuPDF
 from calibre_plugins.kumapdfbookmark.config import (
     BODY_FLUSH_MIN_LEN,
     BODY_FLUSH_MIN_SIZE_RATIO,
+    CAPTION_RE,
+    FIRST_BODY_HEADING_RE,
+    FRONT_MATTER_RE,
     HEADING_MAX_CHARS,
     HEADING_MAX_FREQUENCY_RATIO,
     HEADING_MERGE_MAX_LINE_GAP,
@@ -29,6 +33,12 @@ from calibre_plugins.kumapdfbookmark.config import (
     HEADING_SIZE_RATIO_H2,
     HEADING_SIZE_RATIO_H3,
 )
+
+
+# Reused by _is_caption_or_folio: strip a leading number (with optional dot,
+# dash, colon, or whitespace separator) so we can decide whether the
+# remainder of the string is real heading text.
+_LEADING_NUMBER_RE = re.compile(r"^\d+[\s.\-:]*")
 
 
 @dataclass
@@ -67,7 +77,7 @@ def extract_outline(
         if toc and _toc_is_valid(toc, len(doc)):
             if verbose:
                 print(f"[extractor] Found embedded TOC with {len(toc)} entries.")
-            return _toc_to_headings(toc)
+            return _post_filter(_toc_to_headings(toc), verbose)
 
         if toc and verbose:
             print(f"[extractor] Embedded TOC rejected ({len(toc)} entries) — "
@@ -82,7 +92,7 @@ def extract_outline(
         if headings:
             if verbose:
                 print(f"[extractor] Font-size clustering found {len(headings)} headings.")
-            return headings
+            return _post_filter(headings, verbose)
 
         if verbose:
             print("[extractor] Font-size clustering inconclusive — using pattern matching.")
@@ -91,9 +101,87 @@ def extract_outline(
         headings = _pattern_match(doc, verbose)
         if verbose:
             print(f"[extractor] Pattern matching found {len(headings)} headings.")
-        return headings
+        return _post_filter(headings, verbose)
     finally:
         doc.close()
+
+
+# ---------------------------------------------------------------------------
+# Post-filter — caption/folio rejection + front-matter region anchor filter
+# ---------------------------------------------------------------------------
+
+def _is_caption_or_folio(title: str) -> bool:
+    """
+    Return True for headings that should never be bookmarks regardless of
+    where they came from:
+
+      - Figure / table / plate / box captions ("Fig. 1-2", "Table 9-1",
+        "346 Fig. 17-12" with leading folio).
+      - Standalone page folios ("100", "101 102").
+      - Headings whose text after stripping a leading number contains no
+        alphabetic character ("3 -", "12 ...").
+      - OCR garbage with no alphanumerics at all ("....", "----").
+    """
+    s = title.strip()
+    if not s:
+        return True
+    if CAPTION_RE.match(s):
+        return True
+    if s.isdigit():
+        return True
+    rest = _LEADING_NUMBER_RE.sub("", s).strip()
+    if rest and not re.search(r"[A-Za-z]", rest):
+        return True
+    if not re.search(r"[A-Za-z0-9]", s):
+        return True
+    return False
+
+
+def _find_front_matter_end(headings: list["Heading"]) -> int | None:
+    """
+    Return the 0-indexed page where body content begins.
+
+    The first heading whose title looks like a numbered chapter/section/part
+    marker establishes the boundary.  Returns None when no such heading
+    exists (descriptive-titled atlases like Dutton), in which case the
+    front-matter filter is skipped.
+    """
+    for h in headings:
+        if FIRST_BODY_HEADING_RE.match(h.title.strip()):
+            return h.page
+    return None
+
+
+def _post_filter(headings: list["Heading"], verbose: bool) -> list["Heading"]:
+    """
+    Apply caption/folio rejection and the front-matter region filter.
+
+    Runs on whatever list extract_outline produced, so embedded-TOC PDFs
+    whose publisher-supplied outlines are themselves polluted (caption
+    bookmarks, page-folio bookmarks, contributor-list bookmarks) are
+    cleaned up the same way as font-derived outlines.
+    """
+    raw_count = len(headings)
+
+    cleaned = [h for h in headings if not _is_caption_or_folio(h.title)]
+    after_caption_folio = len(cleaned)
+
+    fm_end = _find_front_matter_end(cleaned)
+    if fm_end is not None:
+        cleaned = [
+            h for h in cleaned
+            if h.page >= fm_end or FRONT_MATTER_RE.match(h.title.strip())
+        ]
+
+    if verbose:
+        dropped_cf = raw_count - after_caption_folio
+        dropped_fm = after_caption_folio - len(cleaned)
+        fm_label = f"page {fm_end + 1}" if fm_end is not None else "not detected"
+        print(
+            f"[extractor] Post-filter: {raw_count} -> {len(cleaned)} headings "
+            f"(captions/folios: -{dropped_cf}, front-matter@{fm_label}: -{dropped_fm})."
+        )
+    return cleaned
 
 
 # ---------------------------------------------------------------------------

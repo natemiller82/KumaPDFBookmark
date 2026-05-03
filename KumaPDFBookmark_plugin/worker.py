@@ -1,18 +1,18 @@
 """
 BookmarkWorker — runs extract_outline() → apply_depth_filter() → write_outline().
 
-linuxserver/calibre Docker does not ship PyMuPDF or pypdf.
-_ensure_fitz() and _ensure_pypdf() each pip-install the missing package on
-first use into a persistent directory under Calibre's config_dir, then add
-that directory to sys.path before the relevant imports run.
+The linuxserver/calibre Docker image does not ship PyMuPDF.  _ensure_fitz()
+pip-installs it on first use into a persistent directory under Calibre's
+config_dir, then adds that directory to sys.path before extractor/writer
+do `import fitz`.  pypdf is no longer needed (writer.py was migrated to
+fitz upstream) so its bootstrap was removed along with the vendored copy.
 """
 from __future__ import annotations
 
 import os
 import sys
 
-_FITZ_READY  = False   # module-level flags — pip runs only once per session
-_PYPDF_READY = False
+_FITZ_READY = False   # module-level flag — pip runs only once per session
 
 
 # ---------------------------------------------------------------------------
@@ -54,43 +54,6 @@ def _ensure_fitz() -> None:
             "Run 'pip install pymupdf' inside the container and restart Calibre."
         )
     _FITZ_READY = True
-
-
-def _ensure_pypdf() -> None:
-    """Guarantee pypdf is importable, installing it if necessary."""
-    global _PYPDF_READY
-    if _PYPDF_READY:
-        return
-    try:
-        import pypdf  # noqa: F401
-        _PYPDF_READY = True
-        return
-    except ImportError:
-        pass
-
-    import importlib
-    from calibre.utils.config import config_dir
-
-    deps_dir = os.path.join(config_dir, 'plugins', 'kumapdfbookmark_pypdf')
-    sentinel  = os.path.join(deps_dir, '.installed')
-
-    if not os.path.exists(sentinel):
-        os.makedirs(deps_dir, exist_ok=True)
-        _pip_install('pypdf', deps_dir)
-        open(sentinel, 'w').close()
-
-    if deps_dir not in sys.path:
-        sys.path.insert(0, deps_dir)
-    importlib.invalidate_caches()
-
-    try:
-        import pypdf  # noqa: F401
-    except ImportError:
-        raise ImportError(
-            "pypdf could not be loaded even after pip install. "
-            "Run 'pip install pypdf' inside the container and restart Calibre."
-        )
-    _PYPDF_READY = True
 
 
 def _pip_install(package: str, target: str) -> None:
@@ -140,9 +103,9 @@ class BookmarkWorker:
             self.error = str(exc)
 
     def _run(self) -> None:
-        # Both must run before importing extractor/writer, which load fitz/pypdf.
+        # Must run before importing extractor/writer, which both `import fitz`
+        # at module load.
         _ensure_fitz()
-        _ensure_pypdf()
 
         from calibre_plugins.kumapdfbookmark.extractor import extract_outline
         from calibre_plugins.kumapdfbookmark.filtering import apply_depth_filter
