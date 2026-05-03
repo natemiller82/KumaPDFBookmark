@@ -315,13 +315,45 @@ None of these are new strategies — they're patches to existing code.
    EPUB-conversion artifacts. **Fix:** in `_post_filter`, reject titles
    matching `^OEBPS[-_]\d+$`.
 
-These three patches are isolated to `main.py` (#1) and
-`extractor.py:_post_filter` (#2 and #3). They land before Phase A and
-should be benchmarked once via `_bench.py PRE_PHASE` to confirm:
-- Dutton bookmark count rises from 80 to 91 (11 chapter wrappers restored)
-- Dedivitis loses the "cover" entry
-- Grabb loses the two `OEBPS-*` entries
-- All other fixtures unchanged
+4. **`_post_filter` should add an `_is_ocr_garbage` quality guard.**
+   Surfaced during the §7.0 #1 implementation: when fix #1 keeps L1
+   entries with descendants, font-cluster fixtures (Davis) start
+   surfacing OCR-noise spans that happen to be at L1 size and followed
+   by L2 children (`4t`, `-h-`, `f \ /' -`, `". , ),/t::"`). **Fix:** in
+   `extractor.py:_post_filter`, reject titles where `alpha_count < 4`
+   OR `non_alpha_non_space > alpha_count`. Universal quality guard —
+   does not catch real headings even with sparse content
+   (`Embryology` → 9 alpha, `ATLS.9e_Ch01` → 8 alpha).
+
+These four patches are isolated to `main.py` (#1) and
+`extractor.py:_post_filter` (#2, #3, #4). They land before Phase A.
+Verified across the full 11-fixture set via `_bench.py PREPHASE`:
+
+| Fixture | Baseline | After §7.0 | Δ | What happened |
+|---|---:|---:|---:|---|
+| `Davis_Otoplasty`     |  17 |  17 |    0 | Composition swap: 7 OCR-fragment L1s/L2-dashes dropped, 7 real chapter titles recovered ("The Patient", "Aesthetic Otoplasty", "Moderate Microtia and Partial Atresia", "The Cartilage", "Severe Microtia and Radical Auriculoplasty", "Bilateral Microtia and Atresia", "Hemifacial Microsomia"). "Conclusion" / "Bihliography*" not recovered — no L2 children. True fix is Phase D `toc_text`. |
+| `ATLS_11_Course`      | 695 | 693 |   −2 | OCR-fragment L2s dropped (`III` at p150 alpha=3, `B-C.` at p310 alpha=2). |
+| `ATLS_10_Faculty`     | 914 |1391 | +477 | ~500 real ATLS section headings restored ("The Development and Structure of ATLS", "The ATLS Program", "Course Overview", "Before the Course", "during the Course", …) — they had no chapter numbers but had L2 sub-section children. 23 OCR-fragment L2s dropped (test-answer-row strings like `1-10. (a) (b) (c) (d) (e) 1-30. (a) (b) (c) (d) (e)`). |
+| `ATLS_Legacy_2017`    |  24 |  25 |   +1 | "Student Manual WIP3" L1 root container restored; "ATLS.9e_FrontMatter" correctly re-nested L1→L2 under it. |
+| `Janfaza_HeadAnatomy` |  83 |  72 |  −11 | 23 real all-caps chapter wrappers gained ("ANATOMY OF THE NECK", "TEMPORALIS AND INFRATEMPORAL FOSSAE", "PHARYNX", "ORAL CAVITY", …); 34 OCR fragments dropped (`-------,f----_`, `~--J~`, `1tri--`, `(Fig. 12.15}`, …). Page targets remain broken (all → page 1) — that's Phase D `outline_repaginate`, not §7.0. |
+| `Dutton_Atlas`        |  80 |  90 |  +10 | 10 of 11 source L1 chapter wrappers restored ("Cavernous Sinus", "Osteology of the Orbit", …). The 11th — "Histologic Anatomy of the Orbit" at p173 — has no L2 children in source so `_has_descendants` correctly doesn't promote it. |
+| `Cheney_FacialSurgery`| 465 | 445 |  −20 | 20 single-letter index navigation markers `I-1`…`I-20` on pp 1146-1165 dropped via `_is_ocr_garbage`. Alphabetical-index anchors, not chapter content. |
+| `Grabb_Flaps`         | 229 | 229 |    0 | OEBPS entries already dropped by `_post_filter`'s front-matter region check (they land before Chapter 1's page). #3 makes the rejection explicit and robust to future fixtures where `FIRST_BODY_HEADING_RE` doesn't fire. |
+| `Gubisch_Rhinoplasty` |  17 |  23 |   +6 | 6 PART-level wrappers restored ("Internal Nose: Septum", "External Nose", "Nasal Pyramid", "Malformations", "Complex Revision", "Software") — same mechanism as Dutton. |
+| `Kaufman_FacialRecon` |  16 |  16 |    0 | Already-clean outline; no descendants-recovery needed. |
+| `Dedivitis_Laryngeal` |  31 |  31 |    0 | "cover" entry at page -1 was already being dropped by `apply_depth_filter`'s `_has_chapter_number` check; #2 makes it explicit at `_post_filter`. Cleaner pipeline ordering, no count change. |
+
+**Surprise from the bench: Fix #1's chapter-wrapper recovery is much
+broader than the Session 0 survey predicted.** The survey identified
+Dutton as the canonical case, but ATLS_10 (+477), ATLS_11_Course (−2),
+ATLS_Legacy_2017 (+1), Janfaza (−11), and Gubisch (+6) all share the
+same root cause: descriptive or all-caps chapter titles that don't
+match `CHAPTER_H1_RE`. Five fixtures were silently degraded by the
+same mechanism Dutton was. Phase A's signal taxonomy needs a "has
+descriptive (non-numbered) chapter wrappers" detector to match this
+generality — currently the report only labels Dutton/Gubisch/Kaufman
+as the chapter-wrapper-bearing fixtures, but ATLS_10 is the most
+dramatic case (+500 headings restored).
 
 ### Phase A — Signal detection *(no behavior change)*
 1. Create `signals.py` with `detect_signals(pdf_path) -> SignalReport`
@@ -330,6 +362,29 @@ should be benchmarked once via `_bench.py PRE_PHASE` to confirm:
    `FIXTURE_REPORT.md` §"Patterns NOT yet observed")
 3. Add `--inspect` to `main.py` that prints the report and exits
 4. Verify against the 11 fixtures: every fixture produces a sensible report
+
+**Acceptance criterion — Davis TOC detection.** Session 2 surfaced that
+the Session 0 probe (`_session0_signals.py`, using `validator._looks_like_toc_page`)
+missed Davis's printed TOC page, so Davis was misclassified as Source 9
+(font-cluster only) when it's actually Source 6 (TOC page without
+hyperlinks) with Source 9 as a fallback. Davis's TOC has decorative
+typography — drop-cap chapter numerals plus chapter title in distinct
+font with sparse spacing — that the current density heuristic doesn't
+score above threshold. Phase A's Source 6 detector must pass on Davis
+without human inspection. Either:
+  - tune the detector threshold so the existing density heuristic catches
+    Davis (preferred — test on the 9-page Davis front matter), or
+  - add a complementary signal (e.g. detect runs of "<title> ......... <int>"
+    even when the dot-leaders are absent or unusual), or
+  - both, if a single fix can't cover Davis without false positives on
+    other fixtures.
+
+  Davis-specific test case: open the source PDF, scan pages 5-9, and
+  confirm the detector flags at least one of those as a TOC-without-
+  hyperlinks page. Numeric threshold: TOC entry density on Davis's
+  contents page is ~10-15 entries on one page, well above the validator's
+  current `min_entries=4` floor — so the issue is likely line-recognition
+  format, not count.
 
 ### Phase B — Strategy router *(no behavior change yet, just plumbing)*
 1. Create `strategies.py` with `Strategy` dataclass and a registry

@@ -22,6 +22,7 @@ from calibre_plugins.kumapdfbookmark.config import (
     BODY_FLUSH_MIN_LEN,
     BODY_FLUSH_MIN_SIZE_RATIO,
     CAPTION_RE,
+    EPUB_ARTIFACT_RE,
     FIRST_BODY_HEADING_RE,
     FRONT_MATTER_RE,
     HEADING_MAX_CHARS,
@@ -72,12 +73,14 @@ def extract_outline(
     """
     doc = fitz.open(pdf_path)
     try:
+        page_count = doc.page_count
+
         # Step 1: embedded TOC
         toc = doc.get_toc(simple=False)
         if toc and _toc_is_valid(toc, len(doc)):
             if verbose:
                 print(f"[extractor] Found embedded TOC with {len(toc)} entries.")
-            return _post_filter(_toc_to_headings(toc), verbose)
+            return _post_filter(_toc_to_headings(toc), verbose, page_count)
 
         if toc and verbose:
             print(f"[extractor] Embedded TOC rejected ({len(toc)} entries) — "
@@ -92,7 +95,7 @@ def extract_outline(
         if headings:
             if verbose:
                 print(f"[extractor] Font-size clustering found {len(headings)} headings.")
-            return _post_filter(headings, verbose)
+            return _post_filter(headings, verbose, page_count)
 
         if verbose:
             print("[extractor] Font-size clustering inconclusive — using pattern matching.")
@@ -101,7 +104,7 @@ def extract_outline(
         headings = _pattern_match(doc, verbose)
         if verbose:
             print(f"[extractor] Pattern matching found {len(headings)} headings.")
-        return _post_filter(headings, verbose)
+        return _post_filter(headings, verbose, page_count)
     finally:
         doc.close()
 
@@ -117,6 +120,7 @@ def _is_caption_or_folio(title: str) -> bool:
 
       - Figure / table / plate / box captions ("Fig. 1-2", "Table 9-1",
         "346 Fig. 17-12" with leading folio).
+      - EPUB conversion artifacts ("OEBPS-14", "OEBPS_6362").
       - Standalone page folios ("100", "101 102").
       - Headings whose text after stripping a leading number contains no
         alphabetic character ("3 -", "12 ...").
@@ -127,12 +131,42 @@ def _is_caption_or_folio(title: str) -> bool:
         return True
     if CAPTION_RE.match(s):
         return True
+    if EPUB_ARTIFACT_RE.match(s):
+        return True
     if s.isdigit():
         return True
     rest = _LEADING_NUMBER_RE.sub("", s).strip()
     if rest and not re.search(r"[A-Za-z]", rest):
         return True
     if not re.search(r"[A-Za-z0-9]", s):
+        return True
+    return False
+
+
+def _is_ocr_garbage(title: str) -> bool:
+    """
+    Reject titles that are typographically OCR fragments rather than real
+    headings.  Catches single-glyph artifacts ("4t", "-h-"), high-punctuation
+    noise ("f \\ /' -"), and sub-threshold-content entries (". , ),/t::").
+
+    Does *not* catch real headings even with sparse content (e.g.
+    "Embryology", "ATLS.9e_Ch01") because those have >=4 alphabetic chars
+    and predominantly-alphabetic composition.
+
+    Universal quality guard — runs alongside _is_caption_or_folio in
+    _post_filter regardless of whether the heading came from an embedded
+    outline, font-cluster pass, or a future toc_text/repaginate strategy.
+    """
+    stripped = title.strip()
+    if not stripped:
+        return True
+    alpha_count = sum(1 for c in stripped if c.isalpha())
+    if alpha_count < 4:
+        return True
+    non_alpha_non_space = sum(
+        1 for c in stripped if not c.isalpha() and not c.isspace()
+    )
+    if non_alpha_non_space > alpha_count:
         return True
     return False
 
@@ -152,18 +186,31 @@ def _find_front_matter_end(headings: list["Heading"]) -> int | None:
     return None
 
 
-def _post_filter(headings: list["Heading"], verbose: bool) -> list["Heading"]:
+def _post_filter(headings: list["Heading"], verbose: bool, page_count: int) -> list["Heading"]:
     """
-    Apply caption/folio rejection and the front-matter region filter.
+    Apply quality / sanity rejections and the front-matter region filter.
 
     Runs on whatever list extract_outline produced, so embedded-TOC PDFs
     whose publisher-supplied outlines are themselves polluted (caption
-    bookmarks, page-folio bookmarks, contributor-list bookmarks) are
-    cleaned up the same way as font-derived outlines.
+    bookmarks, page-folio bookmarks, contributor-list bookmarks, OCR
+    fragments, out-of-range page targets) are cleaned up the same way as
+    font-derived outlines.
+
+    Args:
+        headings:    Raw headings from any extraction path.
+        verbose:     Emit progress messages.
+        page_count:  Total pages in the source PDF — used by the
+                     page-bounds guard to reject entries with invalid page
+                     targets (e.g. Dedivitis's "cover" entry at page -1).
     """
     raw_count = len(headings)
 
-    cleaned = [h for h in headings if not _is_caption_or_folio(h.title)]
+    cleaned = [
+        h for h in headings
+        if 0 <= h.page < page_count
+        and not _is_caption_or_folio(h.title)
+        and not _is_ocr_garbage(h.title)
+    ]
     after_caption_folio = len(cleaned)
 
     fm_end = _find_front_matter_end(cleaned)

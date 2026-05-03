@@ -51,10 +51,23 @@ _BARE_IMPORT_RE = re.compile(
 )
 
 # Functions + module-level assignments to lift out of main.py for filtering.py.
+#
+# TODO(future): FILTERING_FUNCS is hand-maintained — adding a helper to
+# apply_depth_filter without updating this list silently breaks the plugin
+# (NameError at runtime).  Two ways to harden:
+#   A. Walk apply_depth_filter's AST call graph and auto-extract
+#      transitively-referenced helpers from main.py.
+#   B. Post-build sanity check: import filtering and call
+#      apply_depth_filter([]) — fail if NameError/ImportError.
+# Caught a real defect of this shape during the §7.0 prephase session —
+# _has_descendants was added to main.py but not to FILTERING_FUNCS, and
+# the synced filtering.py would have NameError'd at first use.  Address
+# before the next build-script-touching change.
 FILTERING_FUNCS = (
     "_is_front_matter",
     "_has_chapter_number",
     "_is_credential_name",
+    "_has_descendants",
     "_dedup_key",
     "apply_depth_filter",
 )

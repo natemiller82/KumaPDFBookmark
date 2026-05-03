@@ -33,6 +33,24 @@ def _is_credential_name(title: str) -> bool:
     return bool(CREDENTIAL_RE.search(title))
 
 
+def _has_descendants(headings: list[Heading], idx: int) -> bool:
+    """
+    Return True when headings[idx] is followed by one or more entries deeper
+    than itself before any entry at the same level or shallower.
+
+    Used by apply_depth_filter to keep an L1 entry whose title doesn't
+    match CHAPTER_H1_RE (e.g. Dutton's descriptive chapter titles like
+    "Cavernous Sinus") when that entry is the parent of L2/L3/L4 children.
+    """
+    cur_level = headings[idx].level
+    for h in headings[idx + 1:]:
+        if h.level > cur_level:
+            return True
+        if h.level <= cur_level:
+            return False
+    return False
+
+
 _CHAPTER_NUM_PREFIX = re.compile(r"^\d+\s+(?:[a-zA-Z]:\s*)?")
 
 
@@ -54,14 +72,17 @@ def apply_depth_filter(headings: list[Heading], depth: int) -> list[Heading]:
     - H2 and H3 headings are kept when their level <= depth.
     """
     result: list[Heading] = []
-    for h in headings:
+    for i, h in enumerate(headings):
         level = h.level
 
         if _is_front_matter(h.title):
             result.append(Heading(level=1, title=h.title, page=h.page))
             continue
 
-        if level == 1 and not _has_chapter_number(h.title):
+        # L1 entries without chapter numbers are usually cover-page noise,
+        # but keep them when they head a subtree (Dutton's "Cavernous Sinus"
+        # etc. each parents 5+ L2/L3 entries).
+        if level == 1 and not _has_chapter_number(h.title) and not _has_descendants(headings, i):
             continue
 
         # OCR artefact: real headings start with an uppercase letter or digit

@@ -98,6 +98,11 @@ FIRST_BODY_HEADING_RE = re.compile(
     re.IGNORECASE,
 )
 
+# EPUB conversion artifacts — outline entries left behind by epub-to-PDF
+# pipelines (Grabb's "OEBPS-14", "OEBPS-6362").  Rejected by _post_filter
+# regardless of where they came from.
+EPUB_ARTIFACT_RE = re.compile(r"^OEBPS[-_]\d+$", re.IGNORECASE)
+
 # H1 headings should carry a chapter/section number or be front matter.
 # Used as a soft filter to suppress random large-font OCR artefacts.
 CHAPTER_H1_RE = re.compile(

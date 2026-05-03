@@ -15,7 +15,7 @@ fixture, and flags edge cases worth surfacing before Phase A implementation.
 
 | # | Fixture | Pages | Embedded TOC | Dominant pattern | Recommended strategy |
 |---|---------|------:|--------------|------------------|----------------------|
-| 1  | `Davis_Otoplasty`      |  149 | 0 entries                          | **Source 9** (no outline, font cluster needed) | `font_cluster` |
+| 1  | `Davis_Otoplasty`      |  149 | 0 entries                          | **Source 6** (printed TOC without hyperlinks) + **Source 9** (font-cluster fallback) | `toc_text` (Phase D) — interim: `font_cluster` + OCR garbage guard |
 | 2  | `ATLS_11_Course`       |  377 | 727 entries, depth 1-2, 0.8% noise | **Source 1** (complete outline)          | `outline_only` |
 | 3  | `ATLS_10_Faculty`      |  781 | 1 entry ("Contents")               | **Source 5** (TOC pages with hyperlinks) | `toc_links` |
 | 4  | `ATLS_Legacy_2017`     |  421 | 31 entries, identifier-style       | **Source 1** (complete outline)          | `outline_only` |
@@ -41,7 +41,8 @@ sit above L2/L3 children.
 - **Source 3b** (flat-by-design): 2 fixtures (Grabb — encyclopedia, Dedivitis — case-series)
 - **Source 13** (title-quality issue): 1 fixture (Dedivitis — slug titles, secondary signal alongside 3b)
 - **Source 5** (TOC with hyperlinks): 1 fixture (ATLS_10)
-- **Source 9** (font cluster only): 1 fixture (Davis)
+- **Source 9** (font cluster as interim fallback): 1 fixture (Davis — true
+  primary is Source 6, awaiting Phase D `toc_text`)
 - **Source 11** (broken page targets): 1 fixture (Janfaza)
 
 Source 3a (flat-by-defect) and patterns 4, 6, 7, 8, 10, 12 not dominant for
@@ -58,21 +59,30 @@ observed" below.
 - **Size:** 9.3 MB · **Pages:** 149
 - **Embedded outline:** none
 - **Other signals detected:**
-  - 9 sparse-text pages (sample of 100): pp 1, 2, 3, 25, 60, 76, … — likely a mix
-    of cover/copyright pages and illustration plates rather than true chapter
-    title pages. Source 7 detection is **noisy on this fixture** and should be
-    treated as a hint, not authoritative.
+  - 9 sparse-text pages (sample of 100): pp 1, 2, 3, 25, 60, 76, … — mix of
+    cover/copyright pages and illustration plates rather than true chapter
+    title pages. Source 7 detection is noisy on this fixture.
   - 0 `CHAPTER N` running headers detected
   - No struct tree
-- **Dominant pattern:** **Source 9** — font-cluster fallback is the only viable
-  primary source. The signals.py probe classified this as Source 7 due to sparse
-  pages, but in practice the existing font-cluster path is what produces working
-  bookmarks for this fixture (current bench: 17 entries at depth 2).
-- **Recommended strategy:** `font_cluster` (existing path). Consider whether
-  the Source 7 chapter-title-page detector should add a filter for true title
-  pages (large centered text + low total density) vs. illustration plates.
-- **Notes:** Single-author monograph, OCR'd. Some heading titles are mangled
-  ("1 I I", "5 m. fttns") — OCR quality, not pipeline.
+  - **Printed TOC page (no hyperlinks) on the early pages** — every chapter
+    title and printed page number is in parseable text but our signals probe
+    didn't score this above threshold. Re-classify Davis as Source 6 +
+    fallback Source 9.
+- **Dominant pattern:** **Source 6** (printed TOC without hyperlinks) with
+  **Source 9** (font-cluster) as the current fallback because Phase D's
+  `toc_text` strategy isn't built yet.
+- **Recommended strategy (long-term):** `toc_text` (Phase D) — parse the
+  printed TOC page once that strategy exists. **Recommended strategy
+  (interim):** continue `font_cluster`, mitigated by the OCR-garbage filter
+  added in §7.0 #4 of `BOOKMARK_SOURCES.md`.
+- **Notes:** Single-author monograph, OCR'd. Decorative drop-cap chapter
+  numerals plus chapter title in distinct font causes typographic split
+  into multiple text spans, which is why the font-cluster path produces
+  both real chapter titles AND OCR garbage simultaneously. The OCR-garbage
+  filter (`_is_ocr_garbage`) catches the typographic noise; real chapter
+  titles like "Aesthetic Otoplasty", "Moderate Microtia and Partial Atresia",
+  "Hemifacial Microsomia" survive. Some titles remain mangled by OCR
+  ("Bihliography*", "5 m. fttns") — OCR quality issue, not pipeline.
 
 ### 2. ATLS_11_Course
 
@@ -302,8 +312,12 @@ that exhibit the signal (whether dominant or secondary):
 5. **TOC page with hyperlinks** — ATLS_10_Faculty (dominant), ATLS_Legacy_2017,
    Dutton_Atlas, Gubisch_Rhinoplasty, Kaufman_FacialRecon, Dedivitis_Laryngeal
    (all secondary — outline already supplies primary structure)
-6. **TOC page without hyperlinks** — Cheney_FacialSurgery, Gubisch_Rhinoplasty,
-   Dedivitis_Laryngeal (all secondary)
+6. **TOC page without hyperlinks** — Davis_Otoplasty (re-classified after
+   Session-2 OCR-garbage analysis: TOC page exists but signals probe
+   missed it; primary parseable source for Davis when Phase D ships),
+   Cheney_FacialSurgery, Gubisch_Rhinoplasty, Dedivitis_Laryngeal
+   (Cheney/Gubisch/Dedivitis all secondary, outline supplies primary
+   structure)
 7. **Distinctive chapter title pages** — Davis (low confidence — likely cover
    pages mistaken for title pages), Gubisch (54/100 sampled — many are
    illustration plates), Kaufman (27/100). Detector is noisy.
