@@ -83,6 +83,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=False,
         help="Print progress information.",
     )
+    parser.add_argument(
+        "--rebuild",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Force fresh extraction by ignoring any embedded bookmark outline "
+            "in the source PDF.  Use this when re-processing a file whose "
+            "outline was previously written by a tool that produced bad "
+            "results — without --rebuild, that bad outline would just be "
+            "re-read instead of regenerated.  Default: --no-rebuild "
+            "(consult embedded outline if present)."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -212,7 +225,12 @@ def run(args: argparse.Namespace) -> int:
     if args.verbose:
         print(f"[main] Extracting outline from: {args.input}")
 
-    raw_headings = extract_outline(args.input, use_llm=use_llm, verbose=args.verbose)
+    raw_headings = extract_outline(
+        args.input,
+        use_llm=use_llm,
+        verbose=args.verbose,
+        ignore_existing_outline=args.rebuild,
+    )
 
     headings = apply_depth_filter(raw_headings, args.depth)
 

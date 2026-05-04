@@ -78,6 +78,12 @@ class KumaPDFBookmarkAction(InterfaceAction):
             'enable_llm': prefs['enable_llm'],
             'ollama_url': prefs['ollama_url'],
             'model_name': prefs['model_name'],
+            # By the time worker runs, the user has either selected "always
+            # overwrite" or accepted a prompt to replace existing bookmarks
+            # (the 'never' branch in this method skips worker entirely).
+            # Either way they expect fresh content, so tell the extractor to
+            # bypass the existing outline rather than re-read it.
+            'ignore_existing_outline': True,
         }
 
         # Ensure fitz is importable now so the per-book TOC check is instant.

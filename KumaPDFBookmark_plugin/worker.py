@@ -119,7 +119,11 @@ class BookmarkWorker:
                 base_url=self.settings.get('ollama_url', 'http://localhost:11434'),
             )
 
-        headings = extract_outline(self.pdf_path, use_llm=use_llm)
+        headings = extract_outline(
+            self.pdf_path,
+            use_llm=use_llm,
+            ignore_existing_outline=self.settings.get('ignore_existing_outline', False),
+        )
         filtered = apply_depth_filter(headings, self.settings.get('depth', 2))
         self.count = len(filtered)
         write_outline(self.pdf_path, self.output_path, filtered)

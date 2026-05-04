@@ -57,6 +57,7 @@ def extract_outline(
     pdf_path: str,
     use_llm: Callable[[list[str]], list[str]] | None = None,
     verbose: bool = False,
+    ignore_existing_outline: bool = False,
 ) -> list[Heading]:
     """
     Extract a structured outline from *pdf_path*.
@@ -67,6 +68,12 @@ def extract_outline(
                    returns a list of labels ("H1"/"H2"/"H3"/"BODY").
                    Used to resolve spans in the H3 size-band that are not bold.
         verbose:   Emit progress messages to stdout.
+        ignore_existing_outline:
+                   When True, skip the embedded-outline (`doc.get_toc()`)
+                   path entirely and extract from page content (font cluster
+                   / pattern match).  Used by the CLI's --rebuild flag and
+                   by the plugin's overwrite mode.  Default False preserves
+                   the existing "trust the outline if present" behavior.
 
     Returns:
         List of Heading objects in document order.
@@ -75,20 +82,31 @@ def extract_outline(
     try:
         page_count = doc.page_count
 
-        # Step 1: embedded TOC
-        toc = doc.get_toc(simple=False)
-        if toc and _toc_is_valid(toc, len(doc)):
+        # Step 1: embedded TOC (skipped in fresh-extract mode)
+        if ignore_existing_outline:
             if verbose:
-                print(f"[extractor] Found embedded TOC with {len(toc)} entries.")
-            return _post_filter(_toc_to_headings(toc), verbose, page_count)
+                print("[extractor] ignore_existing_outline=True — bypassing "
+                      "embedded outline, extracting from page content.")
+        else:
+            toc = doc.get_toc(simple=False)
+            if toc and _toc_is_valid(toc, len(doc)):
+                if verbose:
+                    print(f"[extractor] Found embedded TOC with {len(toc)} entries.")
+                return _post_filter(_toc_to_headings(toc), verbose, page_count)
 
-        if toc and verbose:
-            print(f"[extractor] Embedded TOC rejected ({len(toc)} entries) — "
-                  "too many entries point to front matter or a single page.")
-        elif verbose:
-            print("[extractor] No embedded TOC — running font-size analysis.")
+            if toc and verbose:
+                print(f"[extractor] Embedded TOC rejected ({len(toc)} entries) — "
+                      "too many entries point to front matter or a single page.")
+            elif verbose:
+                print("[extractor] No embedded TOC — running font-size analysis.")
 
         # Step 2: font-size clustering with merge pass
+        # TODO: font-cluster on Dutton-in-calibre captures the chapter-
+        # opener typography "1 C H A P T E R Cavernous Sinus" literally
+        # because letter-spaced "CHAPTER" renders as separate spans that
+        # merge with adjacent number+title spans. Cosmetic only — the
+        # bookmarks navigate correctly. Future cleanup: normalize repeated-
+        # letter spacing or strip CHAPTER-prefix decoration in _post_filter.
         spans = _collect_spans(doc, verbose)
         headings = _cluster_by_font_size(spans, use_llm=use_llm, verbose=verbose)
 
